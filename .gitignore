@@ -1,0 +1,11 @@
+/.idea/
+/.vscode/
+/.phpunit.cache/
+/build/
+/dist/
+/storage/*
+!/storage/.gitkeep
+.env
+*.log
+*.zip
+composer.phar

@@ -1,0 +1,20 @@
+{
+  "name": "aki-sho/nexapress-mail",
+  "description": "Mail extension for NexaPress 2.3.0",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.1",
+    "ext-dom": "*",
+    "ext-fileinfo": "*",
+    "ext-imap": "*",
+    "ext-json": "*",
+    "ext-mbstring": "*",
+    "ext-openssl": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "phpmailer/phpmailer": "^6.10"
+  },
+  "autoload": {"psr-4": {"NexaPressMail\\": "src/"}},
+  "config": {"optimize-autoloader": true, "sort-packages": true}
+}

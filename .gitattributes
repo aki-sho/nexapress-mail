@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.png binary
+*.zip binary
+/tests export-ignore
+/.github export-ignore
+/build.php export-ignore
+/.editorconfig export-ignore
+/.gitattributes export-ignore
