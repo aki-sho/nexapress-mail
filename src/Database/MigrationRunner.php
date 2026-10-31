@@ -13,6 +13,9 @@ final class MigrationRunner
         foreach (self::statements() as $sql) {
             $pdo->exec($sql);
         }
+        StoredMailHtmlMigration::run($pdo, Database::table('nexapress_mail_messages'),
+            Database::table('nexapress_mail_migrations'));
+        FeatureMigration::run($pdo);
     }
 
     private static function statements(): array
@@ -21,7 +24,11 @@ final class MigrationRunner
         $messages = Database::table('nexapress_mail_messages');
         $attachments = Database::table('nexapress_mail_attachments');
         $logs = Database::table('nexapress_mail_logs');
+        $migrations = Database::table('nexapress_mail_migrations');
         return [
+            "CREATE TABLE IF NOT EXISTS {$migrations} (
+                version VARCHAR(100) PRIMARY KEY, applied_at DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             "CREATE TABLE IF NOT EXISTS {$accounts} (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(100) NOT NULL, email VARCHAR(254) NOT NULL,

@@ -7,6 +7,6 @@ final class ImapConnectionTester
     public function test(array $account): void
     {
         $stream = ImapConnection::open($account);
-        imap_close($stream);
+        ImapConnection::close($stream);
     }
 }

@@ -33,20 +33,6 @@ final class MailSendService
         }
     }
 
-    public function saveDraft(int $accountId, array $message, array $attachments, int $draftId = 0): int
-    {
-        $limits = require NEXAPRESS_MAIL_PATH . '/config/limits.php';
-        if (count($attachments) > $limits['message_attachments']) { throw new \InvalidArgumentException('添付ファイルは10件までです。'); }
-        $account = (new AccountRepository())->find($accountId);
-        if (!$account) { throw new \InvalidArgumentException('アカウントが見つかりません。'); }
-        $record = $this->record($account, $message, null, 'drafts', (bool)$attachments);
-        if ($draftId) { $record['id'] = $draftId; }
-        $id = (new MessageRepository())->save($record);
-        (new AttachmentPersister())->persistFiles($id, $attachments);
-        (new LogRepository())->write('info', 'draft', '下書きを保存しました。', $accountId);
-        return $id;
-    }
-
     private function record(array $account, array $message, ?string $messageId, string $folder, bool $hasAttachments): array
     {
         $recipients = ['to'=>$message['to'],'cc'=>$message['cc'],'bcc'=>$message['bcc']];
@@ -64,8 +50,8 @@ final class MailSendService
     {
         try {
             $stream = ImapConnection::open($account, $account['folder_sent']);
-            imap_append($stream, ImapConnection::mailbox($account, $account['folder_sent']), $mime, '\\Seen');
-            imap_close($stream);
+            try { ImapConnection::append($stream, $account, $account['folder_sent'], $mime); }
+            finally { ImapConnection::close($stream); }
         } catch (Throwable $exception) {
             (new LogRepository())->write('warning', 'sent-copy', '送信済みIMAP保存に失敗: ' . $exception->getMessage(), (int)$account['id']);
         }

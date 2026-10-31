@@ -47,4 +47,7 @@ final class AttachmentRepository
         $this->pdo->prepare("DELETE FROM {$this->table} WHERE message_id=?")->execute([$messageId]);
         return $items;
     }
+
+    public function delete(int $id, int $messageId): void
+    { $this->pdo->prepare("DELETE FROM {$this->table} WHERE id=? AND message_id=?")->execute([$id,$messageId]); }
 }

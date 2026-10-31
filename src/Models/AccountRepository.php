@@ -47,9 +47,12 @@ final class AccountRepository
                 throw new \RuntimeException('アカウントが見つかりません。');
             }
             foreach (['smtp_password', 'imap_password'] as $key) {
-                if ($values[$key] === '') {
+                if ($values['auth_type'] === 'password' && $values[$key] === '' && $current[$key] !== '') {
                     $values[$key] = $this->cipher->encrypt($current[$key]);
                 }
+            }
+            if ($values['auth_type'] === 'password' && ($values['smtp_password'] === '' || $values['imap_password'] === '')) {
+                throw new \InvalidArgumentException('SMTP・IMAPパスワードは必須です。');
             }
             $sets = implode(', ', array_map(static fn($key) => "{$key}=:{$key}", array_keys($values)));
             $values['updated_at'] = $now;
@@ -58,7 +61,7 @@ final class AccountRepository
                 ->execute($values);
             return $id;
         }
-        if ($values['smtp_password'] === '' || $values['imap_password'] === '') {
+        if ($values['auth_type'] === 'password' && ($values['smtp_password'] === '' || $values['imap_password'] === '')) {
             throw new \InvalidArgumentException('SMTP・IMAPパスワードは必須です。');
         }
         $values['created_at'] = $now;
@@ -73,6 +76,10 @@ final class AccountRepository
     {
         $stmt = $this->pdo->prepare("DELETE FROM {$this->table} WHERE id=?");
         $stmt->execute([$id]);
+        foreach (['oauth','sync_state','sync_jobs'] as $suffix) {
+            $table = Database::table('nexapress_mail_' . $suffix);
+            $this->pdo->prepare("DELETE FROM {$table} WHERE account_id=?")->execute([$id]);
+        }
     }
 
     public function hasMessages(int $id): bool
@@ -100,17 +107,20 @@ final class AccountRepository
         $out['imap_port'] = (int) ($data['imap_port'] ?? 993);
         foreach (['smtp_password','imap_password'] as $key) {
             $plain = (string) ($data[$key] ?? '');
-            $out[$key] = $plain === '' ? '' : $this->cipher->encrypt($plain);
+            $out[$key] = ($data['auth_type'] ?? 'password') === 'oauth2' || $plain === '' ? '' : $this->cipher->encrypt($plain);
         }
         $out['is_default'] = empty($data['is_default']) ? 0 : 1;
         $out['is_active'] = empty($data['is_active']) ? 0 : 1;
+        $out['auth_type'] = $data['auth_type'] ?? 'password';
+        $out['auto_sync_enabled'] = empty($data['auto_sync_enabled']) ? 0 : 1;
+        $out['auto_sync_interval'] = (int)($data['auto_sync_interval'] ?? 300);
         return $out;
     }
 
     private function decrypt(array $row): array
     {
-        $row['smtp_password'] = $this->cipher->decrypt((string) $row['smtp_password']);
-        $row['imap_password'] = $this->cipher->decrypt((string) $row['imap_password']);
+        $row['smtp_password'] = $row['smtp_password'] === '' ? '' : $this->cipher->decrypt((string) $row['smtp_password']);
+        $row['imap_password'] = $row['imap_password'] === '' ? '' : $this->cipher->decrypt((string) $row['imap_password']);
         return $row;
     }
 }

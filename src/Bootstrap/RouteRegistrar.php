@@ -10,6 +10,7 @@ use NexaPressMail\Controllers\ComposeController;
 use NexaPressMail\Controllers\LogController;
 use NexaPressMail\Controllers\MailboxController;
 use NexaPressMail\Controllers\SyncController;
+use NexaPressMail\Controllers\OAuthController;
 
 final class RouteRegistrar
 {
@@ -21,6 +22,8 @@ final class RouteRegistrar
         $router->get($b . '/compose', ComposeController::class . '@form');
         $router->post($b . '/send', ComposeController::class . '@send');
         $router->post($b . '/draft', ComposeController::class . '@draft');
+        $router->post($b . '/draft/autosave', ComposeController::class . '@autosave');
+        $router->get($b . '/draft/recovery', ComposeController::class . '@recovery');
         $router->post($b . '/message/{id}/action', ActionController::class . '@message');
         $router->post($b . '/bulk', ActionController::class . '@bulk');
         $router->get($b . '/accounts', AccountController::class . '@index');
@@ -29,6 +32,10 @@ final class RouteRegistrar
         $router->post($b . '/accounts/delete/{id}', AccountController::class . '@delete');
         $router->post($b . '/accounts/test/{protocol}', AccountController::class . '@test');
         $router->post($b . '/sync', SyncController::class . '@sync');
+        $router->get($b . '/sync/status', SyncController::class . '@status');
+        $router->post($b . '/oauth/connect/{id}', OAuthController::class . '@begin');
+        $router->post($b . '/oauth/disconnect/{id}', OAuthController::class . '@disconnect');
+        $router->get($b . '/oauth/callback', OAuthController::class . '@callback');
         $router->get($b . '/logs', LogController::class . '@index');
         $router->get($b . '/attachment/{id}', AttachmentController::class . '@download');
     }

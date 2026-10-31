@@ -4,6 +4,8 @@ namespace NexaPressMail\Controllers;
 use NexaPressMail\Models\AccountRepository;
 use NexaPressMail\Models\AttachmentRepository;
 use NexaPressMail\Models\MessageRepository;
+use NexaPressMail\Services\Imap\ImapFlagService;
+use NexaPressMail\Support\FlashMessage;
 
 final class MailboxController extends BaseController
 {
@@ -24,7 +26,11 @@ final class MailboxController extends BaseController
         $message = (new MessageRepository())->find((int)$id);
         if (!$message) { http_response_code(404); echo 'メールが見つかりません。'; return; }
         if ($message['folder'] === 'inbox' && !$message['is_read']) {
-            (new MessageRepository())->updateFlags([(int)$id], ['is_read'=>1]); $message['is_read'] = 1;
+            try {
+                $account = (new AccountRepository())->find((int)$message['account_id']);
+                if ($account) { (new ImapFlagService())->apply($account, $message, 'read'); }
+                (new MessageRepository())->updateFlags([(int)$id], ['is_read'=>1]); $message['is_read'] = 1;
+            } catch (\Throwable $error) { FlashMessage::set('warning', 'メールは表示できますが、サーバー上の既読更新に失敗しました。'); }
         }
         $this->view('message/show', ['message'=>$message,
             'attachments'=>(new AttachmentRepository())->forMessage((int)$id)], 'メール詳細');

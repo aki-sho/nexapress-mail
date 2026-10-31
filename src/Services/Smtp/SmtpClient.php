@@ -3,6 +3,8 @@
 namespace NexaPressMail\Services\Smtp;
 
 use NexaPressMail\Services\Security\HeaderInjectionGuard;
+use NexaPressMail\Services\Security\TransportSecurity;
+use NexaPressMail\Services\OAuth\SmtpTokenProvider;
 use PHPMailer\PHPMailer\PHPMailer;
 use RuntimeException;
 
@@ -38,6 +40,7 @@ final class SmtpClient
 
     private function configured(array $account): PHPMailer
     {
+        $security = TransportSecurity::validate($account, 'smtp');
         $mail = new PHPMailer(true);
         $mail->isSMTP();
         $mail->Host = $account['smtp_host'];
@@ -45,9 +48,15 @@ final class SmtpClient
         $mail->SMTPAuth = true;
         $mail->Username = $account['smtp_username'];
         $mail->Password = $account['smtp_password'];
-        $security = $account['smtp_security'];
+        if (($account['auth_type'] ?? 'password') === 'oauth2') {
+            if (empty($account['id'])) { throw new RuntimeException('OAuthアカウントを保存して接続してください。'); }
+            $mail->AuthType = 'XOAUTH2';
+            $mail->Password = '';
+            $mail->setOAuth(new SmtpTokenProvider($account));
+        }
         $mail->SMTPSecure = $security === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS
-            : ($security === 'tls' ? PHPMailer::ENCRYPTION_STARTTLS : '');
+            : PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->SMTPOptions = ['ssl'=>['verify_peer'=>true,'verify_peer_name'=>true,'allow_self_signed'=>false]];
         $mail->Timeout = 20;
         $mail->CharSet = PHPMailer::CHARSET_UTF8;
         $mail->Encoding = PHPMailer::ENCODING_BASE64;

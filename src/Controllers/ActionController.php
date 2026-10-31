@@ -41,11 +41,11 @@ final class ActionController extends BaseController
             $repo->delete($id); return;
         }
         $account = (new AccountRepository())->find((int)$message['account_id']);
-        if ($account) { (new ImapFlagService())->apply($account, $message, $action); }
+        $remoteChanges = $account ? (new ImapFlagService())->apply($account, $message, $action) : [];
         $changes = match ($action) {
             'read'=>['is_read'=>1],'unread'=>['is_read'=>0],'star'=>['is_starred'=>1],
             'unstar'=>['is_starred'=>0],'trash'=>['folder'=>'trash'],'restore'=>['folder'=>'inbox'],default=>[],
         };
-        $repo->updateFlags([$id], $changes);
+        $repo->updateFlags([$id], array_merge($changes, $remoteChanges));
     }
 }

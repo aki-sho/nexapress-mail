@@ -2,34 +2,37 @@
 
 namespace NexaPressMail\Services\Imap;
 
+use NexaPressMail\Models\SyncStateRepository;
+use NexaPressMail\Services\Security\PrivateLock;
+
 final class ImapFlagService
 {
-    public function apply(array $account, array $message, string $action): void
+    public function apply(array $account, array $message, string $action): array
     {
-        if (empty($message['remote_uid'])) { return; }
+        if (empty($message['remote_uid']) || !empty($message['remote_missing'])) { return []; }
         $source = $this->remoteFolder($account, $message['folder']);
-        $stream = ImapConnection::open($account, $source);
+        $lock = new PrivateLock('sync-' . (int)$account['id'], false);
+        $stream = null;
         try {
-            $uid = (string)$message['remote_uid'];
-            match ($action) {
-                'read' => imap_setflag_full($stream, $uid, '\\Seen', ST_UID),
-                'unread' => imap_clearflag_full($stream, $uid, '\\Seen', ST_UID),
-                'star' => imap_setflag_full($stream, $uid, '\\Flagged', ST_UID),
-                'unstar' => imap_clearflag_full($stream, $uid, '\\Flagged', ST_UID),
-                'trash' => $this->move($stream, $uid, $account['folder_trash']),
-                'restore' => $this->move($stream, $uid, 'INBOX'),
-                'delete' => imap_delete($stream, $uid, FT_UID),
-                default => true,
-            };
-        } finally { imap_close($stream, CL_EXPUNGE); }
-    }
-
-    private function move($stream, string $uid, string $folder): bool
-    {
-        if (!imap_mail_move($stream, $uid, $folder, CP_UID)) {
-            throw new \RuntimeException('IMAP上でメールを移動できません: ' . (imap_last_error() ?: '不明なエラー'));
-        }
-        return imap_expunge($stream);
+            $stream = ImapConnection::open($account, $source);
+            $state = (new SyncStateRepository())->get((int)$account['id'], $message['folder']);
+            $status = ImapConnection::status($stream, $account, $source);
+            $serverKey = hash('sha256', implode('|', [$account['imap_host'],$account['imap_port'],$account['imap_username'],$source]));
+            if ((int)$state['uidvalidity'] !== (int)$status->uidvalidity || $state['server_key'] !== $serverKey) {
+                throw new \RuntimeException('サーバーのメール識別情報が変わっています。先に手動同期を実行してください。');
+            }
+            $uid = (int)$message['remote_uid'];
+            if ($action === 'trash' || $action === 'restore') {
+                $target = $action === 'trash' ? $account['folder_trash'] : 'INBOX';
+                return ['remote_uid'=>ImapConnection::move($stream, $uid, $target),'remote_missing'=>0];
+            }
+            if ($action === 'delete') { ImapConnection::delete($stream, $uid); }
+            elseif (in_array($action, ['read','unread','star','unstar'], true)) {
+                ImapConnection::flag($stream, $uid, in_array($action, ['read','unread'], true) ? '\\Seen' : '\\Flagged',
+                    in_array($action, ['read','star'], true));
+            }
+            return [];
+        } finally { if ($stream !== null) { ImapConnection::close($stream); } $lock->release(); }
     }
 
     private function remoteFolder(array $account, string $folder): string

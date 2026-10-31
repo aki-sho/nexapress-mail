@@ -1,6 +1,9 @@
 <?php
 namespace NexaPressMail\Controllers;
 
+use app\Core\Database;
+use NexaPressMail\Models\OAuthRepository;
+use NexaPressMail\Services\Security\PrivateLock;
 use NexaPressMail\Models\AccountRepository;
 use NexaPressMail\Models\LogRepository;
 use NexaPressMail\Services\Imap\ImapConnectionTester;
@@ -14,17 +17,28 @@ final class AccountController extends BaseController
     {
         $account = (new AccountRepository())->find((int)$id);
         if (!$account) { http_response_code(404); echo 'アカウントが見つかりません。'; return; }
-        $this->view('accounts/edit', compact('account'), 'アカウント編集');
+        $oauth = (new OAuthRepository())->find((int)$id);
+        $this->view('accounts/edit', compact('account','oauth'), 'アカウント編集');
     }
     public function save(): void
     {
         $this->csrf();
         $id = (int)($_POST['id'] ?? 0);
+        $originalId = $id;
+        $pdo = Database::connect(); $lock = null;
         try {
+            if ($id) { $lock = new PrivateLock('oauth-' . $id); }
             (new AccountValidator())->validate($_POST, $id === 0);
-            (new AccountRepository())->save($_POST);
+            $pdo->beginTransaction();
+            $id = (new AccountRepository())->save($_POST);
+            if (($_POST['auth_type'] ?? 'password') === 'oauth2') { (new OAuthRepository())->save($id, $_POST); }
+            else { (new OAuthRepository())->disconnect($id); }
+            $pdo->commit();
             $this->ok('メールアカウントを保存しました。', 'admin/extensions/nexapress-mail/accounts');
-        } catch (\Throwable $error) { $this->fail($error, $id ? 'admin/extensions/nexapress-mail/accounts/edit/'.$id : 'admin/extensions/nexapress-mail/accounts'); }
+        } catch (\Throwable $error) {
+            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            $this->fail($error, $originalId ? 'admin/extensions/nexapress-mail/accounts/edit/'.$originalId : 'admin/extensions/nexapress-mail/accounts');
+        } finally { if ($lock) { $lock->release(); } }
     }
     public function delete(string $id): void
     {
