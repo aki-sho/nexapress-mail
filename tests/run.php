@@ -39,7 +39,7 @@ $test('attachment safety', static function () use ($assert): void {
 });
 $test('manifest contract', static function () use ($assert): void {
     $manifest = json_decode((string)file_get_contents(NEXAPRESS_MAIL_PATH.'/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
-    $assert($manifest['id']==='nexapress-mail' && $manifest['version']==='1.1.1' && $manifest['requires']['nexapress']==='2.3.0');
+    $assert($manifest['id']==='nexapress-mail' && $manifest['version']==='1.1.2' && $manifest['requires']['nexapress']==='2.3.0');
 });
 $test('credential encryption and authentication', static function () use ($assert): void {
     $cipher = new CredentialCipher(null, str_repeat('k', 32));

@@ -8,5 +8,6 @@ return [
     'blocked_extensions' => [
         'bat', 'cmd', 'com', 'cpl', 'exe', 'hta', 'js', 'jse', 'msi', 'pif',
         'ps1', 'scr', 'vbe', 'vbs', 'wsf', 'sh', 'php', 'phar',
+        'lnk', 'reg', 'sct', 'msp', 'msix', 'appx', 'jar', 'psm1', 'phtml',
     ],
 ];

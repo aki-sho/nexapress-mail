@@ -4,7 +4,8 @@
 
 | Version | Supported |
 | --- | --- |
-| 1.0.x | Yes |
+| 1.1.2 | Yes |
+| 1.1.1 以下 | 1.1.2 への更新を推奨 |
 
 ## Reporting a vulnerability
 

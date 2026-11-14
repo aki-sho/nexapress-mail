@@ -3,6 +3,7 @@
 namespace NexaPressMail\Services\Attachment;
 
 use InvalidArgumentException;
+use finfo;
 
 final class AttachmentValidator
 {
@@ -15,5 +16,24 @@ final class AttachmentValidator
         if (DangerousFileDetector::isBlocked($name, $mime)) {
             throw new InvalidArgumentException('危険な種類の添付ファイルは使用できません。');
         }
+    }
+
+    public function inspectFile(string $name, string $path): string
+    {
+        $size = is_file($path) ? filesize($path) : false;
+        if ($size === false) { throw new InvalidArgumentException('添付ファイルを読み込めません。'); }
+        $this->validate($name, '', $size);
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path) ?: 'application/octet-stream';
+        $this->validate($name, $mime, $size);
+        return $mime;
+    }
+
+    public function inspectBytes(string $name, string $bytes, string $declaredMime = ''): string
+    {
+        $size = strlen($bytes);
+        $this->validate($name, $declaredMime, $size);
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->buffer($bytes) ?: 'application/octet-stream';
+        $this->validate($name, $mime, $size);
+        return $mime;
     }
 }

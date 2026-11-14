@@ -165,6 +165,26 @@ $test('UTF-8 conversion cannot bypass the body limit', static function () use ($
     Fixture::$bodies[1] = ['1'=>str_repeat("\xE9", $size)];
     $reject(static fn() => (new ImapPartReader())->read(null, 1, $size + 100), MailReceiveLimitException::class);
 });
+$test('attachment validation uses content and checks previously saved files', static function () use ($assert, $reject): void {
+    Fixture::database();
+    $persister = new NexaPressMail\Services\Attachment\AttachmentPersister();
+    $validator = new NexaPressMail\Services\Attachment\AttachmentValidator();
+    $bytes = "#!/bin/sh\n# Attachment inspection fixture\n";
+    $reject(static fn() => $persister->persistBytes(1, ['name'=>'notes.txt','mime'=>'text/plain','bytes'=>$bytes]), InvalidArgumentException::class);
+    $reject(static fn() => $validator->inspectBytes('installer.exe. ', 'sample'), InvalidArgumentException::class);
+    $assert((new NexaPressMail\Models\AttachmentRepository())->forMessage(1) === []);
+
+    $storage = new NexaPressMail\Services\Attachment\AttachmentStorage();
+    $savedPath = $storage->store($bytes);
+    try {
+        $reject(static fn() => $validator->inspectFile('notes.txt', $storage->path($savedPath)), InvalidArgumentException::class);
+        $persister->persistBytes(1, ['name'=>'notes.txt','mime'=>'application/octet-stream','bytes'=>'ordinary text']);
+        $saved = (new NexaPressMail\Models\AttachmentRepository())->forMessage(1)[0];
+        $assert($saved['mime_type'] === 'text/plain');
+    } finally {
+        $storage->delete($savedPath);
+    }
+});
 $test('sync skips a rejected message and imports the next one', static function () use ($assert, $leaf, $limits, $account): void {
     Fixture::reset(); $pdo = Fixture::database();
     Fixture::$overview = [1=>(object)['size'=>$limits['receive_message_bytes'] + 1],

@@ -2,6 +2,8 @@
 
 namespace NexaPressMail\Services\Smtp;
 
+use NexaPressMail\Services\Attachment\AttachmentFilename;
+use NexaPressMail\Services\Attachment\AttachmentValidator;
 use NexaPressMail\Services\Security\HeaderInjectionGuard;
 use NexaPressMail\Services\Security\TransportSecurity;
 use NexaPressMail\Services\OAuth\SmtpTokenProvider;
@@ -26,7 +28,12 @@ final class SmtpClient
             $mail->addCustomHeader('In-Reply-To', $message['in_reply_to']);
             $mail->addCustomHeader('References', $message['in_reply_to']);
         }
-        foreach ($attachments as $file) { $mail->addAttachment($file['path'], $file['name'], PHPMailer::ENCODING_BASE64, $file['mime']); }
+        $validator = new AttachmentValidator();
+        foreach ($attachments as $file) {
+            $name = AttachmentFilename::clean($file['name']);
+            $mime = $validator->inspectFile($name, $file['path']);
+            $mail->addAttachment($file['path'], $name, PHPMailer::ENCODING_BASE64, $mime);
+        }
         if (!$mail->send()) { throw new RuntimeException('SMTP送信に失敗しました: ' . $mail->ErrorInfo); }
         return ['message_id'=>trim($mail->getLastMessageID(), '<>'), 'mime'=>$mail->getSentMIMEMessage()];
     }

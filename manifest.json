@@ -2,11 +2,11 @@
   "id": "nexapress-mail",
   "name": "NexaPress Mail",
   "description": "SMTP送信とIMAP受信に対応した複数アカウント対応メール管理機能です。",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "bootstrap": "bootstrap.php",
   "bundled": true,
   "icon_url": "https://raw.githubusercontent.com/aki-sho/nexapress-mail/main/img.png",
-  "download_url": "https://github.com/aki-sho/nexapress-mail/releases/download/v1.1.1/nexapress-mail-1.1.1.zip",
+  "download_url": "https://github.com/aki-sho/nexapress-mail/releases/download/v1.1.2/nexapress-mail-1.1.2.zip",
   "requires": {"nexapress": "2.3.0", "php": "8.1"},
   "update": {
     "provider": "github",

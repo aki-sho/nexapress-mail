@@ -5,23 +5,23 @@ namespace NexaPressMail\Services\Imap;
 use NexaPressMail\Services\Security\HeaderInjectionGuard;
 use NexaPressMail\Services\Security\TransportSecurity;
 
-final class OAuthImapClient
+final class ImapSocketClient
 {
     private $socket;
     private int $sequence = 0;
     private array $capabilities = [];
 
-    public function __construct(array $account, private string $folder, string $token)
+    public function __construct(array $account, private string $folder, ?string $token = null)
     {
         $security = TransportSecurity::validate($account, 'imap');
-        HeaderInjectionGuard::assertSafe($account['imap_username'], $token, $folder);
+        HeaderInjectionGuard::assertSafe($account['imap_username'], $folder);
         $host = trim($account['imap_host'], '[]');
         $context = stream_context_create(['ssl'=>['verify_peer'=>true,'verify_peer_name'=>true,
             'allow_self_signed'=>false,'peer_name'=>$host]]);
         $address = ($security === 'ssl' ? 'tls' : 'tcp') . '://' . (str_contains($host, ':') ? '[' . $host . ']' : $host)
             . ':' . (int)$account['imap_port'];
         $this->socket = @stream_socket_client($address, $errno, $error, 20, STREAM_CLIENT_CONNECT, $context);
-        if (!$this->socket) { throw new \RuntimeException('OAuth IMAPサーバーへ接続できません。'); }
+        if (!$this->socket) { throw new \RuntimeException('IMAPサーバーへ接続できません。'); }
         stream_set_timeout($this->socket, 30);
         try {
             if (!str_starts_with($this->line(), '* OK')) { throw new \RuntimeException('IMAPサーバーの応答が不正です。'); }
@@ -31,16 +31,53 @@ final class OAuthImapClient
                     throw new \RuntimeException('IMAPのTLS接続に失敗しました。');
                 }
             }
-            $response = $this->command('CAPABILITY');
-            $this->capabilities = preg_split('/\s+/', strtoupper(implode(' ', $response['lines']))) ?: [];
-            if (!in_array('AUTH=XOAUTH2', $this->capabilities, true)) { throw new \RuntimeException('IMAPサーバーがXOAUTH2に対応していません。'); }
-            $payload = base64_encode('user=' . $account['imap_username'] . "\1auth=Bearer " . $token . "\1\1");
-            $sent = false;
-            $this->command('AUTHENTICATE XOAUTH2', function () use ($payload, &$sent): void {
-                $this->write(($sent ? '' : $payload) . "\r\n"); $sent = true;
-            });
+            $this->readCapabilities();
+            if ($token !== null) {
+                HeaderInjectionGuard::assertSafe($token);
+                if (str_contains($account['imap_username'], "\1")) {
+                    throw new \InvalidArgumentException('IMAPユーザー名が不正です。');
+                }
+                if (!in_array('AUTH=XOAUTH2', $this->capabilities, true)) {
+                    throw new \RuntimeException('IMAPサーバーがXOAUTH2に対応していません。');
+                }
+                $this->authenticate('XOAUTH2', 'user=' . $account['imap_username'] . "\1auth=Bearer " . $token . "\1\1");
+            } else {
+                $username = $account['imap_username'];
+                $password = $account['imap_password'];
+                HeaderInjectionGuard::assertSafe($password);
+                if (in_array('AUTH=PLAIN', $this->capabilities, true)) {
+                    $this->authenticate('PLAIN', "\0" . $username . "\0" . $password);
+                } elseif (!in_array('LOGINDISABLED', $this->capabilities, true)) {
+                    $this->command('LOGIN ' . self::quoteString($username) . ' ' . self::quoteString($password));
+                } else {
+                    throw new \RuntimeException('IMAPサーバーが対応するパスワード認証を許可していません。');
+                }
+            }
+            $this->readCapabilities();
             $this->command('SELECT ' . self::quote($this->folder));
         } catch (\Throwable $error) { $this->close(); throw $error; }
+    }
+
+    private function readCapabilities(): void
+    {
+        $response = $this->command('CAPABILITY');
+        foreach ($response['lines'] as $line) {
+            if (preg_match('/^\* CAPABILITY\s+([^\r\n]+)/i', $line, $match)) {
+                $this->capabilities = preg_split('/\s+/', strtoupper(trim($match[1]))) ?: [];
+                return;
+            }
+        }
+        throw new \RuntimeException('IMAPサーバーの機能を確認できません。');
+    }
+
+    private function authenticate(string $mechanism, string $credentials): void
+    {
+        $payload = base64_encode($credentials);
+        $sent = false;
+        $this->command('AUTHENTICATE ' . $mechanism, function () use ($payload, &$sent): void {
+            $this->write(($sent ? '' : $payload) . "\r\n");
+            $sent = true;
+        });
     }
 
     public function status(): object
@@ -121,13 +158,25 @@ final class OAuthImapClient
     public function move(int $uid, string $folder): ?int
     {
         $response = $this->command('UID COPY ' . $uid . ' ' . self::quote($folder));
-        $this->flag($uid, '\\Deleted', true); $this->expunge($uid);
+        $this->flag($uid, '\\Deleted', true);
+        if ($this->supportsUidExpunge()) { $this->command('UID EXPUNGE ' . $uid); }
         preg_match('/\[COPYUID\s+\d+\s+\d+\s+(\d+)\]/i', $response['completion'], $match);
         return isset($match[1]) ? (int)$match[1] : null;
     }
 
-    public function expunge(int $uid): void
-    { if (in_array('UIDPLUS', $this->capabilities, true)) { $this->command('UID EXPUNGE ' . $uid); } }
+    public function delete(int $uid): void
+    {
+        if (!$this->supportsUidExpunge()) {
+            throw new \RuntimeException('サーバーがメールごとの完全削除に対応していません。');
+        }
+        $this->flag($uid, '\\Deleted', true);
+        $this->command('UID EXPUNGE ' . $uid);
+    }
+
+    private function supportsUidExpunge(): bool
+    {
+        return in_array('UIDPLUS', $this->capabilities, true) || in_array('IMAP4REV2', $this->capabilities, true);
+    }
 
     public function append(string $folder, string $mime): void
     {
@@ -229,6 +278,9 @@ final class OAuthImapClient
     {
         HeaderInjectionGuard::assertSafe($value);
         $value = mb_convert_encoding($value, 'UTF7-IMAP', 'UTF-8');
-        return '"' . addcslashes($value, '\\"') . '"';
+        return self::quoteString($value);
     }
+
+    private static function quoteString(string $value): string
+    { return '"' . addcslashes($value, '\\"') . '"'; }
 }

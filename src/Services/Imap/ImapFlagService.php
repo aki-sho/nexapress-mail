@@ -14,7 +14,7 @@ final class ImapFlagService
         $lock = new PrivateLock('sync-' . (int)$account['id'], false);
         $stream = null;
         try {
-            $stream = ImapConnection::open($account, $source);
+            $stream = ImapConnection::open($account, $source, $action === 'delete');
             $state = (new SyncStateRepository())->get((int)$account['id'], $message['folder']);
             $status = ImapConnection::status($stream, $account, $source);
             $serverKey = hash('sha256', implode('|', [$account['imap_host'],$account['imap_port'],$account['imap_username'],$source]));

@@ -1,6 +1,6 @@
 # NexaPress Mail
 
-> 最新バージョン: 1.1.1（2026-10-31）。ローカルの未公開変更を反映し、ソースと配布物を揃えた同期リリースです。
+> バージョン 1.1.2（2026-11-14）。IMAP の完全削除、添付の検査、受信処理、配布 ZIP を改修しています。
 
 NexaPress 2.3.0の管理画面に、SMTP送信・IMAP受信対応のメールクライアントを追加する拡張機能です。複数アカウント、4フォルダ、返信・全員に返信・転送、検索、添付ファイルに加え、Gmail／Microsoft 365のOAuth認証、差分・過去メール同期、自動受信、下書き自動保存・復元を提供します。
 
@@ -18,7 +18,7 @@ SMTPには [PHPMailer](https://github.com/PHPMailer/PHPMailer) 6.12.0（LGPL-2.1
 
 ## インストール
 
-1. `nexapress-mail-1.1.1.zip` を取得します。
+1. `nexapress-mail-1.1.2.zip` を取得します。
 2. NexaPressの「拡張機能」からZIPをアップロードし、有効化します。
 3. 「メール」→「アカウント」でSMTP・IMAP情報とサーバー上のフォルダ名を登録します。
 4. SMTP／IMAP接続テスト後、「手動同期」を実行します。
@@ -92,7 +92,7 @@ php tests/run.php
 php build.php
 ```
 
-`build.php` は `dist/nexapress-mail-1.1.1.zip` を作り、先頭エントリ、除外対象、秘密情報らしいファイル名を検査します。実メールサーバーへの接続はCIでは行いません。
+`build.php` は必要なソース・ビュー・設定・実行時依存ファイルを収録し、検証した `dist/nexapress-mail-1.1.2.zip` を配置します。実メールサーバーへの接続はCIでは行いません。
 
 Playwrightが利用できる開発環境では `node tests/browser.cjs` でブラウザーの保存・復元・添付・送信失敗・競合・OAuth設定画面を検証できます。必要に応じて `NPM_PHP_BINARY` と `NPM_BROWSER_EXECUTABLE` で実行ファイルを指定してください。このテストは一時的なSQLite DBとSMTP失敗用のスタブを使い、実メールは送信しません。
 
@@ -102,10 +102,12 @@ CMS側の記述は次で正しく、スペルも拡張ID・Release資産名と�
 
 ```json
 "manifest_url": "https://raw.githubusercontent.com/aki-sho/nexapress-mail/main/manifest.json",
-"download_url": "https://github.com/aki-sho/nexapress-mail/releases/download/v1.1.1/nexapress-mail-1.1.1.zip"
+"download_url": "https://github.com/aki-sho/nexapress-mail/releases/download/v1.1.2/nexapress-mail-1.1.2.zip"
 ```
 
 ## 制限事項
+
+- サーバー上の完全削除には UIDPLUS または IMAP4rev2 が必要です。パスワード認証では TLS 接続上の AUTH=PLAIN または LOGIN を使用します。パスワード認証での移動元メールは削除マーク付きでサーバーに残り、一覧と同期の対象から外れます。
 
 - OAuth接続には各プロバイダーでのアプリ登録と本人の同意が必要です。
 - 自動受信にはサーバー側の定期実行登録が必要です。

@@ -122,6 +122,10 @@ namespace NexaPressMail\Services\Imap {
         return $out;
     }
     function imap_close($stream): bool { return true; }
+    function imap_mail_move($stream, $uid, $folder, $flags): bool
+    { return $uid === '31' && $folder === 'Trash' && $flags === CP_UID; }
+    function imap_expunge($stream): never
+    { throw new \LogicException('Native IMAP must not issue an unscoped expunge'); }
     function imap_setflag_full($stream, $uid, $flag, $options): bool { Fixture::$flagCalls++; return true; }
     function imap_clearflag_full($stream, $uid, $flag, $options): bool { Fixture::$flagCalls++; return true; }
 }

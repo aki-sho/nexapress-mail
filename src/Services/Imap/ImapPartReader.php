@@ -14,7 +14,7 @@ final class ImapPartReader
         if ($messageSize < 1 || $messageSize > $limits['receive_message_bytes']) {
             throw new MailReceiveLimitException('メール全体のサイズが不明、または受信上限を超えています。');
         }
-        $structure = $stream instanceof OAuthImapClient ? $stream->structure($uid) : imap_fetchstructure($stream, $uid, FT_UID);
+        $structure = $stream instanceof ImapSocketClient ? $stream->structure($uid) : imap_fetchstructure($stream, $uid, FT_UID);
         if (!$structure) { throw new RuntimeException('メールのMIME構造を取得できません。'); }
 
         // Validate the entire tree before fetching even the first body section.
@@ -110,7 +110,7 @@ final class ImapPartReader
                 throw new RuntimeException('受信サイズ検査を開始できません。');
             }
             // Spool to a bounded file instead of materializing an unchecked IMAP body.
-            $saved = $stream instanceof OAuthImapClient ? $stream->saveBody($file, $uid, $number, $limit)
+            $saved = $stream instanceof ImapSocketClient ? $stream->saveBody($file, $uid, $number, $limit)
                 : @imap_savebody($stream, $file, $uid, $number, FT_UID | FT_PEEK);
             if ($state->exceeded) { throw new MailReceiveLimitException('取得したMIMEパートが受信上限を超えています。'); }
             if (!$saved || !fflush($file)) { throw new RuntimeException('メール本文を取得できません。'); }

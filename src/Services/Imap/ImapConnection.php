@@ -8,12 +8,13 @@ use NexaPressMail\Services\OAuth\OAuthService;
 
 final class ImapConnection
 {
-    public static function open(array $account, string $folder = 'INBOX')
+    public static function open(array $account, string $folder = 'INBOX', bool $forPermanentDelete = false)
     {
         $mailbox = self::mailbox($account, $folder);
         if (($account['auth_type'] ?? 'password') === 'oauth2') {
-            return new OAuthImapClient($account, $folder, (new OAuthService())->accessToken((int)$account['id'], $account, 'imap'));
+            return new ImapSocketClient($account, $folder, (new OAuthService())->accessToken((int)$account['id'], $account, 'imap'));
         }
+        if ($forPermanentDelete) { return new ImapSocketClient($account, $folder); }
         if (!function_exists('imap_open')) {
             throw new RuntimeException('PHP IMAP拡張が有効ではありません。');
         }
@@ -34,14 +35,14 @@ final class ImapConnection
     }
 
     public static function search($stream, string $criteria): array
-    { return $stream instanceof OAuthImapClient ? $stream->search($criteria) : (imap_search($stream, $criteria, SE_UID) ?: []); }
+    { return $stream instanceof ImapSocketClient ? $stream->search($criteria) : (imap_search($stream, $criteria, SE_UID) ?: []); }
 
     public static function overview($stream, int $uid): ?object
-    { return $stream instanceof OAuthImapClient ? $stream->overview($uid) : (imap_fetch_overview($stream, (string)$uid, FT_UID)[0] ?? null); }
+    { return $stream instanceof ImapSocketClient ? $stream->overview($uid) : (imap_fetch_overview($stream, (string)$uid, FT_UID)[0] ?? null); }
 
     public static function status($stream, array $account, string $folder): object
     {
-        $status = $stream instanceof OAuthImapClient ? $stream->status()
+        $status = $stream instanceof ImapSocketClient ? $stream->status()
             : imap_status($stream, self::mailbox($account, $folder), SA_UIDVALIDITY | SA_UIDNEXT);
         if (!$status || empty($status->uidvalidity) || empty($status->uidnext)) { throw new RuntimeException('IMAPのUID状態を取得できません。'); }
         return $status;
@@ -49,7 +50,7 @@ final class ImapConnection
 
     public static function flags($stream, array $uids): array
     {
-        if ($stream instanceof OAuthImapClient) { return $stream->flags($uids); }
+        if ($stream instanceof ImapSocketClient) { return $stream->flags($uids); }
         if (!$uids) { return []; }
         $rows = imap_fetch_overview($stream, implode(',', $uids), FT_UID);
         if ($rows === false) { throw new RuntimeException('IMAPのフラグ状態を取得できません。'); }
@@ -62,25 +63,25 @@ final class ImapConnection
     }
 
     public static function close($stream): void
-    { if ($stream instanceof OAuthImapClient) { $stream->close(); } else { imap_close($stream); } }
+    { if ($stream instanceof ImapSocketClient) { $stream->close(); } else { imap_close($stream); } }
 
     public static function append($stream, array $account, string $folder, string $mime): void
     {
-        if ($stream instanceof OAuthImapClient) { $stream->append($folder, $mime); }
+        if ($stream instanceof ImapSocketClient) { $stream->append($folder, $mime); }
         elseif (!imap_append($stream, self::mailbox($account, $folder), $mime, '\\Seen')) { throw new RuntimeException('送信済みメールを保存できません。'); }
     }
 
     public static function flag($stream, int $uid, string $flag, bool $add): void
     {
-        if ($stream instanceof OAuthImapClient) { $stream->flag($uid, $flag, $add); return; }
+        if ($stream instanceof ImapSocketClient) { $stream->flag($uid, $flag, $add); return; }
         $ok = $add ? imap_setflag_full($stream, (string)$uid, $flag, ST_UID) : imap_clearflag_full($stream, (string)$uid, $flag, ST_UID);
         if (!$ok) { throw new RuntimeException('IMAPのフラグを更新できません。'); }
     }
 
     public static function move($stream, int $uid, string $folder): ?int
     {
-        if ($stream instanceof OAuthImapClient) { return $stream->move($uid, $folder); }
-        if (!imap_mail_move($stream, (string)$uid, $folder, CP_UID) || !imap_expunge($stream)) {
+        if ($stream instanceof ImapSocketClient) { return $stream->move($uid, $folder); }
+        if (!imap_mail_move($stream, (string)$uid, $folder, CP_UID)) {
             throw new RuntimeException('IMAP上でメールを移動できません。');
         }
         return null;
@@ -88,7 +89,9 @@ final class ImapConnection
 
     public static function delete($stream, int $uid): void
     {
-        if ($stream instanceof OAuthImapClient) { $stream->flag($uid, '\\Deleted', true); $stream->expunge($uid); }
-        elseif (!imap_delete($stream, (string)$uid, FT_UID) || !imap_expunge($stream)) { throw new RuntimeException('IMAPメールを削除できません。'); }
+        if (!$stream instanceof ImapSocketClient) {
+            throw new RuntimeException('メールごとの完全削除に対応した接続が必要です。');
+        }
+        $stream->delete($uid);
     }
 }

@@ -11,7 +11,7 @@ use NexaPressMail\Services\OAuth\OAuthProvider;
 use NexaPressMail\Services\OAuth\TokenHttpClient;
 use NexaPressMail\Services\OAuth\SmtpTokenProvider;
 use NexaPressMail\Services\Imap\ImapResponseParser;
-use NexaPressMail\Services\Imap\OAuthImapClient;
+use NexaPressMail\Services\Imap\ImapSocketClient;
 use NexaPressMail\Services\Imap\MailReceiveLimitException;
 use NexaPressMail\Services\Imap\ImapFlagService;
 use NexaPressMail\Services\Receive\MailSyncService;
@@ -132,7 +132,7 @@ $test('IMAP BODYSTRUCTURE parser preserves multipart and attachment metadata', s
 $test('OAuth IMAP protocol reads headers, flags and body without setting Seen', static function () use ($assert, $socketPair): void {
     $pair = $socketPair();
     $assert($pair !== false, 'socket pair unavailable');
-    $reflection = new ReflectionClass(OAuthImapClient::class); $client = $reflection->newInstanceWithoutConstructor();
+    $reflection = new ReflectionClass(ImapSocketClient::class); $client = $reflection->newInstanceWithoutConstructor();
     $reflection->getProperty('socket')->setValue($client, $pair[0]); $reflection->getProperty('folder')->setValue($client, 'INBOX');
     $header = "From: sender@example.com\r\nTo: test@example.com\r\nSubject: hello\r\nMessage-ID: <a@example.com>\r\n\r\n";
     fwrite($pair[1], "* STATUS INBOX (UIDVALIDITY 55 UIDNEXT 8)\r\nN1 OK done\r\n"
@@ -156,7 +156,7 @@ $test('OAuth IMAP protocol reads headers, flags and body without setting Seen', 
 });
 $test('OAuth IMAP rejects oversized literals before reading them', static function () use ($assert, $reject, $socketPair): void {
     $pair = $socketPair();
-    $reflection = new ReflectionClass(OAuthImapClient::class); $client = $reflection->newInstanceWithoutConstructor();
+    $reflection = new ReflectionClass(ImapSocketClient::class); $client = $reflection->newInstanceWithoutConstructor();
     $reflection->getProperty('socket')->setValue($client, $pair[0]);
     fwrite($pair[1], "* 1 FETCH (BODY[1] {1000000000}\r\n"); $file = tmpfile();
     try {
@@ -229,6 +229,43 @@ $test('message actions reject changed UIDVALIDITY or servers before touching fla
     $assert(Fixture::$flagCalls === 0);
     (new ImapFlagService())->apply($account, $message, 'read'); $assert(Fixture::$flagCalls === 1);
 });
+$test('permanent IMAP deletion is scoped to the requested UID', static function () use ($assert, $reject, $socketPair): void {
+    [$socket, $peer] = $socketPair();
+    $class = new ReflectionClass(ImapSocketClient::class);
+    $client = $class->newInstanceWithoutConstructor();
+    $class->getProperty('socket')->setValue($client, $socket);
+    try {
+        $reject(static fn() => $client->delete(31), RuntimeException::class);
+        stream_set_blocking($peer, false);
+        $assert(stream_get_contents($peer) === '', 'Unsupported servers must not receive a deletion command');
+
+        $class->getProperty('capabilities')->setValue($client, ['IMAP4REV1', 'UIDPLUS']);
+        fwrite($peer, "N1 OK flag saved\r\nN2 OK deletion complete\r\n");
+        NexaPressMail\Services\Imap\ImapConnection::delete($client, 31);
+        $assert(stream_get_contents($peer) === "N1 UID STORE 31 +FLAGS.SILENT (\\Deleted)\r\nN2 UID EXPUNGE 31\r\n");
+    } finally {
+        $client->close();
+        fclose($peer);
+    }
+});
+$test('native IMAP move never expunges unrelated deleted messages', static function () use ($assert): void {
+    $assert(NexaPressMail\Services\Imap\ImapConnection::move('fixture-stream', 31, 'Trash') === null);
+});
+$test('mail with unsupported charset and oversized headers leaves later mail available', static function () use ($assert, $syncFolder, $mailbox, $account): void {
+    Fixture::reset();
+    $pdo = Fixture::database();
+    $folder = $mailbox(2);
+    $folder['overview'][1]->message_id = str_repeat('a', 256);
+    $folder['overview'][1]->subject = str_repeat('s', 1000);
+    $folder['structures'][1]->parameters = [(object)['attribute'=>'charset', 'value'=>'unknown-charset']];
+    $folder['bodies'][1]['1'] = "plain\xff";
+    Fixture::$mailboxes['INBOX'] = $folder;
+
+    $assert($syncFolder($account)['received'] === 2);
+    $row = $pdo->query('SELECT * FROM nexapress_mail_messages WHERE remote_uid=1')->fetch();
+    $assert($row['message_id'] === null && mb_strlen($row['subject'], 'UTF-8') === 998);
+    $assert(mb_check_encoding($row['body_text'], 'UTF-8') && str_starts_with($row['body_text'], 'plain'));
+});
 $test('sent-mail reconciliation retains locally stored BCC recipients', static function () use ($assert): void {
     Fixture::database(); $repo = new MessageRepository();
     $record = ['account_id'=>1,'folder'=>'sent','message_id'=>'sent@example.com','sender_email'=>'test@example.com',
@@ -240,7 +277,7 @@ $test('sent-mail reconciliation retains locally stored BCC recipients', static f
     $assert(json_decode($repo->find($id)['recipients_json'], true)['bcc'] === ['hidden@example.com']);
 });
 $test('IMAP FETCH parsing ignores command-like text inside attachment names', static function () use ($assert): void {
-    $reflection = new ReflectionClass(OAuthImapClient::class); $client = $reflection->newInstanceWithoutConstructor();
+    $reflection = new ReflectionClass(ImapSocketClient::class); $client = $reflection->newInstanceWithoutConstructor();
     $response = ['lines'=>["* 1 FETCH (UID 7 BODYSTRUCTURE (\"APPLICATION\" \"OCTET-STREAM\" (\"NAME\" \"a * 99 FETCH test.txt\") NIL NIL \"BASE64\" 4))\r\n"],'literals'=>[]];
     $rows = $reflection->getMethod('parseFetch')->invoke($client, $response);
     $assert(count($rows) === 1 && $rows[0]['UID'] === '7');

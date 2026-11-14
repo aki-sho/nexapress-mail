@@ -2,7 +2,6 @@
 
 namespace NexaPressMail\Services\Attachment;
 
-use finfo;
 use InvalidArgumentException;
 
 final class UploadedAttachment
@@ -15,17 +14,16 @@ final class UploadedAttachment
             throw new InvalidArgumentException('添付ファイルは10件までです。');
         }
         $items = [];
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $validator = new AttachmentValidator();
         foreach ($files['name'] as $i => $name) {
             $error = (int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE);
             if ($error === UPLOAD_ERR_NO_FILE) { continue; }
             if ($error !== UPLOAD_ERR_OK) { throw new InvalidArgumentException('添付ファイルのアップロードに失敗しました。'); }
             $tmp = (string) $files['tmp_name'][$i];
             if (!is_uploaded_file($tmp) && PHP_SAPI !== 'cli') { throw new InvalidArgumentException('不正なアップロードです。'); }
-            $mime = $finfo->file($tmp) ?: 'application/octet-stream';
             $clean = AttachmentFilename::clean((string) $name);
-            (new AttachmentValidator())->validate($clean, $mime, (int) $files['size'][$i]);
-            $items[] = ['name'=>$clean,'mime'=>$mime,'size'=>(int)$files['size'][$i],'path'=>$tmp];
+            $mime = $validator->inspectFile($clean, $tmp);
+            $items[] = ['name'=>$clean,'mime'=>$mime,'size'=>filesize($tmp),'path'=>$tmp];
         }
         return $items;
     }

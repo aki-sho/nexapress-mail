@@ -14,7 +14,7 @@ use NexaPressMail\Services\Attachment\AttachmentStorage;
 use NexaPressMail\Services\Imap\ImapConnection;
 use NexaPressMail\Services\Imap\ImapPartReader;
 use NexaPressMail\Services\Imap\MailReceiveLimitException;
-use NexaPressMail\Services\Imap\OAuthImapClient;
+use NexaPressMail\Services\Imap\ImapSocketClient;
 use NexaPressMail\Services\Parser\AddressParser;
 use NexaPressMail\Services\Parser\SubjectDecoder;
 use NexaPressMail\Services\Security\PrivateLock;
@@ -104,7 +104,7 @@ final class MailSyncService
                     catch (MailReceiveLimitException $error) {
                         $rejected++;
                         (new LogRepository())->write('warning', 'receive-limit', $error->getMessage(), (int)$account['id'], ['folder'=>$local,'uid'=>(int)$uid]);
-                        if ($stream instanceof OAuthImapClient && !$stream->connected()) {
+                        if ($stream instanceof ImapSocketClient && !$stream->connected()) {
                             ImapConnection::close($stream); $stream = ImapConnection::open($account, $remote);
                             if ((int)ImapConnection::status($stream, $account, $remote)->uidvalidity !== (int)$state['uidvalidity']) {
                                 throw new \RuntimeException('同期中にUIDVALIDITYが変わりました。もう一度同期してください。');
@@ -151,11 +151,11 @@ final class MailSyncService
         try {
             $result = (new MessageRepository())->importRecord([
                 'account_id'=>(int)$account['id'],'folder'=>$folder,'remote_uid'=>$uid,
-                'message_id'=>trim((string)($overview->message_id ?? ''), '<>') ?: null,
-                'in_reply_to'=>trim((string)($overview->in_reply_to ?? ''), '<>') ?: null,
-                'sender_name'=>$from['name'],'sender_email'=>$from['email'],
-                'recipients_json'=>json_encode($recipients, JSON_UNESCAPED_UNICODE),
-                'subject'=>SubjectDecoder::decode((string)($overview->subject ?? '')),
+                'message_id'=>$this->messageId($overview->message_id ?? ''),
+                'in_reply_to'=>$this->messageId($overview->in_reply_to ?? ''),
+                'sender_name'=>mb_substr($from['name'], 0, 255, 'UTF-8'),'sender_email'=>$from['email'],
+                'recipients_json'=>json_encode($recipients, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR),
+                'subject'=>mb_substr(SubjectDecoder::decode((string)($overview->subject ?? '')), 0, 998, 'UTF-8'),
                 'body_text'=>$parts['text'],'body_html'=>$parts['html'],
                 'is_read'=>empty($overview->seen) ? 0 : 1,'is_starred'=>empty($overview->flagged) ? 0 : 1,
                 'has_attachments'=>$parts['attachments'] ? 1 : 0,
@@ -181,6 +181,15 @@ final class MailSyncService
             foreach ($createdFiles as $file) { (new AttachmentStorage())->delete($file['storage_path']); }
             throw $error;
         }
+    }
+
+    private function messageId(string $value): ?string
+    {
+        $value = trim(trim($value), '<>');
+        if ($value === '' || strlen($value) > 255 || preg_match('/[^\x21-\x7e]|[<>]/', $value)) {
+            return null;
+        }
+        return $value;
     }
 
     private function folders(array $account): array
